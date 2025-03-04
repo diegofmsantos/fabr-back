@@ -1,11 +1,8 @@
-import jwt from "jsonwebtoken"
 import { PrismaClient } from '@prisma/client'
 import express, { Request, Response } from 'express'
 import { TimeSchema } from '../schemas/Time'
 import { JogadorSchema } from '../schemas/Jogador'
 import { Times } from '../data/times'
-import { verificarPlano } from '../middlewares/authMiddleware'
-import bcrypt from "bcrypt";
 
 const prisma = new PrismaClient()
 
