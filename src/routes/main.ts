@@ -582,81 +582,86 @@ mainRouter.delete('/materia/:id', async (req, res) => {
     }
 })
 
-// Rota para importar dados do arquivo Times
 mainRouter.post('/importar-dados', async (req, res) => {
     try {
-        const teamsData = Times
-        const createdTeams = []
+        const teamsData = Times;
+        const createdTeams = [];
 
         for (const teamData of teamsData) {
-            // Cria o time
-            const createdTeam = await prisma.time.create({
-                data: {
-                    nome: teamData.nome || '',
-                    sigla: teamData.sigla || '',
-                    cor: teamData.cor || '',
-                    cidade: teamData.cidade || '',
-                    bandeira_estado: teamData.bandeira_estado || '',
-                    fundacao: teamData.fundacao || '',
-                    logo: teamData.logo || '',
-                    capacete: teamData.capacete || '',
-                    instagram: teamData.instagram || '',
-                    instagram2: teamData.instagram2 || '',
-                    estadio: teamData.estadio || '',
-                    presidente: teamData.presidente || '',
-                    head_coach: teamData.head_coach || '',
-                    instagram_coach: teamData.instagram_coach || '',
-                    coord_ofen: teamData.coord_ofen || '',
-                    coord_defen: teamData.coord_defen || '',
-                    titulos: teamData.titulos || [],
-                    temporada: teamData.temporada || '2024',
-                },
-            })
+            try {
+                // Primeiro cria o time individualmente
+                const createdTeam = await prisma.time.create({
+                    data: {
+                        nome: teamData.nome || '',
+                        sigla: teamData.sigla || '',
+                        cor: teamData.cor || '',
+                        cidade: teamData.cidade || '',
+                        bandeira_estado: teamData.bandeira_estado || '',
+                        fundacao: teamData.fundacao || '',
+                        logo: teamData.logo || '',
+                        capacete: teamData.capacete || '',
+                        instagram: teamData.instagram || '',
+                        instagram2: teamData.instagram2 || '',
+                        estadio: teamData.estadio || '',
+                        presidente: teamData.presidente || '',
+                        head_coach: teamData.head_coach || '',
+                        instagram_coach: teamData.instagram_coach || '',
+                        coord_ofen: teamData.coord_ofen || '',
+                        coord_defen: teamData.coord_defen || '',
+                        titulos: teamData.titulos || [],
+                        temporada: teamData.temporada || '2024',
+                    },
+                });
 
-            createdTeams.push(createdTeam)
+                createdTeams.push(createdTeam);
 
-            // Cria os jogadores e seus vínculos
-            if (teamData.jogadores && teamData.jogadores.length > 0) {
-                for (const player of teamData.jogadores) {
-                    // Primeiro, cria o jogador
-                    const jogadorCriado = await prisma.jogador.create({
-                        data: {
-                            nome: player.nome || '',
-                            timeFormador: player.timeFormador || '',
-                            posicao: player.posicao || '',
-                            setor: player.setor || 'Ataque',
-                            experiencia: player.experiencia || 0,
-                            idade: player.idade || 0,
-                            altura: player.altura || 0,
-                            peso: player.peso || 0,
-                            instagram: player.instagram || '',
-                            instagram2: player.instagram2 || '',
-                            cidade: player.cidade || '',
-                            nacionalidade: player.nacionalidade || '',
-                        },
-                    })
+                // Depois cria jogadores e vínculos FORA da transação
+                if (teamData.jogadores && teamData.jogadores.length > 0) {
+                    for (const player of teamData.jogadores) {
+                        const jogadorCriado = await prisma.jogador.create({
+                            data: {
+                                nome: player.nome || '',
+                                timeFormador: player.timeFormador || '',
+                                posicao: player.posicao || '',
+                                setor: player.setor || 'Ataque',
+                                experiencia: player.experiencia || 0,
+                                idade: player.idade || 0,
+                                altura: player.altura || 0,
+                                peso: player.peso || 0,
+                                instagram: player.instagram || '',
+                                instagram2: player.instagram2 || '',
+                                cidade: player.cidade || '',
+                                nacionalidade: player.nacionalidade || '',
+                            },
+                        });
 
-                    // Depois, cria o vínculo entre jogador e time
-                    await prisma.jogadorTime.create({
-                        data: {
-                            jogadorId: jogadorCriado.id,
-                            timeId: createdTeam.id,
-                            temporada: teamData.temporada || '2024',
-                            numero: player.numero || 0,
-                            camisa: player.camisa || '',
-                            estatisticas: player.estatisticas || {},
-                        },
-                    })
+                        await prisma.jogadorTime.create({
+                            data: {
+                                jogadorId: jogadorCriado.id,
+                                timeId: createdTeam.id,
+                                temporada: teamData.temporada || '2024',
+                                numero: player.numero || 0,
+                                camisa: player.camisa || '',
+                                estatisticas: player.estatisticas || {},
+                            },
+                        });
+                    }
                 }
+
+                console.log(`✅ Time ${createdTeam.sigla} e jogadores criados.`);
+            } catch (err) {
+                console.error(`❌ Erro ao importar o time ${teamData.sigla}:`, err);
             }
         }
 
-        res.status(201).json({ message: 'Dados importados com sucesso!', teams: createdTeams.length })
+        res.status(201).json({ message: 'Importação concluída.', times: createdTeams.length });
     } catch (error) {
-        console.error('Erro ao importar os dados:', error)
-        res.status(500).json({ error: 'Erro ao importar os dados' })
+        console.error('Erro geral ao importar os dados:', error);
+        res.status(500).json({ error: 'Erro ao importar os dados' });
     }
-})
+});
+
+
 
 // Rota para iniciar nova temporada 
 mainRouter.post('/iniciar-temporada/:ano', async (req, res) => {
