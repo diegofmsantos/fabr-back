@@ -7,10 +7,10 @@ export const TitulosSchema = z.object({
     estaduais: z.string().optional(),
 })
 
-
 export const TimeSchema = z.object({
     id: z.number().optional(),
     nome: z.string().optional(),
+    temporada: z.string().optional(),
     sigla: z.string().optional(),
     cor: z.string().optional(),
     cidade: z.string().optional(),

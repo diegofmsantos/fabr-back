@@ -18,7 +18,7 @@ server.use(express.static(path.join(__dirname, '../public')))
 
 server.use('/api', mainRouter)
 
-const port = process.env.PORT || 4000
+const port = process.env.PORT || 5000
 
 server.listen(port, () => {
     console.log(`Servidor rodando no link: http://localhost:${port}`)
