@@ -3,6 +3,8 @@ import express, { Request, Response } from 'express'
 import { TimeSchema } from '../schemas/Time'
 import { JogadorSchema } from '../schemas/Jogador'
 import { Times } from '../data/times'
+import fs from 'fs';
+import path from 'path';
 
 const prisma = new PrismaClient()
 
@@ -582,348 +584,452 @@ mainRouter.delete('/materia/:id', async (req, res) => {
     }
 })
 
+// Rota para importar dados do arquivo Times
 mainRouter.post('/importar-dados', async (req, res) => {
     try {
-        const teamsData = Times;
-        const createdTeams = [];
+        const teamsData = Times
+        const createdTeams = []
 
         for (const teamData of teamsData) {
-            try {
-                // Primeiro cria o time individualmente
-                const createdTeam = await prisma.time.create({
-                    data: {
-                        nome: teamData.nome || '',
-                        sigla: teamData.sigla || '',
-                        cor: teamData.cor || '',
-                        cidade: teamData.cidade || '',
-                        bandeira_estado: teamData.bandeira_estado || '',
-                        fundacao: teamData.fundacao || '',
-                        logo: teamData.logo || '',
-                        capacete: teamData.capacete || '',
-                        instagram: teamData.instagram || '',
-                        instagram2: teamData.instagram2 || '',
-                        estadio: teamData.estadio || '',
-                        presidente: teamData.presidente || '',
-                        head_coach: teamData.head_coach || '',
-                        instagram_coach: teamData.instagram_coach || '',
-                        coord_ofen: teamData.coord_ofen || '',
-                        coord_defen: teamData.coord_defen || '',
-                        titulos: teamData.titulos || [],
-                        temporada: teamData.temporada || '2024',
-                    },
-                });
+            // Cria o time
+            const createdTeam = await prisma.time.create({
+                data: {
+                    nome: teamData.nome || '',
+                    sigla: teamData.sigla || '',
+                    cor: teamData.cor || '',
+                    cidade: teamData.cidade || '',
+                    bandeira_estado: teamData.bandeira_estado || '',
+                    fundacao: teamData.fundacao || '',
+                    logo: teamData.logo || '',
+                    capacete: teamData.capacete || '',
+                    instagram: teamData.instagram || '',
+                    instagram2: teamData.instagram2 || '',
+                    estadio: teamData.estadio || '',
+                    presidente: teamData.presidente || '',
+                    head_coach: teamData.head_coach || '',
+                    instagram_coach: teamData.instagram_coach || '',
+                    coord_ofen: teamData.coord_ofen || '',
+                    coord_defen: teamData.coord_defen || '',
+                    titulos: teamData.titulos || [],
+                    temporada: teamData.temporada || '2024',
+                },
+            })
 
-                createdTeams.push(createdTeam);
+            createdTeams.push(createdTeam)
 
-                // Depois cria jogadores e vínculos FORA da transação
-                if (teamData.jogadores && teamData.jogadores.length > 0) {
-                    for (const player of teamData.jogadores) {
-                        const jogadorCriado = await prisma.jogador.create({
-                            data: {
-                                nome: player.nome || '',
-                                timeFormador: player.timeFormador || '',
-                                posicao: player.posicao || '',
-                                setor: player.setor || 'Ataque',
-                                experiencia: player.experiencia || 0,
-                                idade: player.idade || 0,
-                                altura: player.altura || 0,
-                                peso: player.peso || 0,
-                                instagram: player.instagram || '',
-                                instagram2: player.instagram2 || '',
-                                cidade: player.cidade || '',
-                                nacionalidade: player.nacionalidade || '',
-                            },
-                        });
+            // Cria os jogadores e seus vínculos
+            if (teamData.jogadores && teamData.jogadores.length > 0) {
+                for (const player of teamData.jogadores) {
+                    // Primeiro, cria o jogador
+                    const jogadorCriado = await prisma.jogador.create({
+                        data: {
+                            nome: player.nome || '',
+                            timeFormador: player.timeFormador || '',
+                            posicao: player.posicao || '',
+                            setor: player.setor || 'Ataque',
+                            experiencia: player.experiencia || 0,
+                            idade: player.idade || 0,
+                            altura: player.altura || 0,
+                            peso: player.peso || 0,
+                            instagram: player.instagram || '',
+                            instagram2: player.instagram2 || '',
+                            cidade: player.cidade || '',
+                            nacionalidade: player.nacionalidade || '',
+                        },
+                    })
 
-                        await prisma.jogadorTime.create({
-                            data: {
-                                jogadorId: jogadorCriado.id,
-                                timeId: createdTeam.id,
-                                temporada: teamData.temporada || '2024',
-                                numero: player.numero || 0,
-                                camisa: player.camisa || '',
-                                estatisticas: player.estatisticas || {},
-                            },
-                        });
-                    }
+                    // Depois, cria o vínculo entre jogador e time
+                    await prisma.jogadorTime.create({
+                        data: {
+                            jogadorId: jogadorCriado.id,
+                            timeId: createdTeam.id,
+                            temporada: teamData.temporada || '2024',
+                            numero: player.numero || 0,
+                            camisa: player.camisa || '',
+                            estatisticas: player.estatisticas || {},
+                        },
+                    })
                 }
-
-                console.log(`✅ Time ${createdTeam.sigla} e jogadores criados.`);
-            } catch (err) {
-                console.error(`❌ Erro ao importar o time ${teamData.sigla}:`, err);
             }
         }
 
-        res.status(201).json({ message: 'Importação concluída.', times: createdTeams.length });
+        res.status(201).json({ message: 'Dados importados com sucesso!', teams: createdTeams.length })
     } catch (error) {
-        console.error('Erro geral ao importar os dados:', error);
-        res.status(500).json({ error: 'Erro ao importar os dados' });
+        console.error('Erro ao importar os dados:', error)
+        res.status(500).json({ error: 'Erro ao importar os dados' })
+    }
+})
+
+// Rota para obter transferências a partir do arquivo JSON
+mainRouter.get('/transferencias-json', (req: Request, res: Response) => {
+    try {
+        const temporadaOrigem = req.query.temporadaOrigem as string;
+        const temporadaDestino = req.query.temporadaDestino as string;
+
+        // Validar parâmetros
+        if (!temporadaOrigem || !temporadaDestino) {
+            res.status(400).json({
+                error: 'Parâmetros temporadaOrigem e temporadaDestino são obrigatórios'
+            });
+            return;
+        }
+
+        // Caminho para o arquivo JSON
+        const filePath = path.join(process.cwd(), 'public', 'data',
+            `transferencias_${temporadaOrigem}_${temporadaDestino}.json`);
+
+        console.log(`Buscando arquivo de transferências: ${filePath}`);
+
+        // Verificar se o arquivo existe
+        if (!fs.existsSync(filePath)) {
+            console.log(`Arquivo de transferências não encontrado: ${filePath}`);
+            res.status(404).json({
+                error: `Não foram encontradas transferências de ${temporadaOrigem} para ${temporadaDestino}`
+            });
+            return;
+        }
+
+        // Ler o conteúdo do arquivo
+        try {
+            const fileContent = fs.readFileSync(filePath, 'utf8');
+
+            // Processar o JSON
+            try {
+                const transferencias = JSON.parse(fileContent);
+                res.status(200).json(transferencias);
+            } catch (parseError) {
+                console.error('Erro ao fazer parse do JSON:', parseError);
+                res.status(500).json({ error: 'Arquivo de transferências está corrompido' });
+            }
+        } catch (readError) {
+            console.error('Erro ao ler arquivo:', readError);
+            res.status(500).json({ error: 'Erro ao ler arquivo de transferências' });
+        }
+    } catch (error) {
+        console.error('Erro geral ao buscar transferências:', error);
+        res.status(500).json({ error: 'Erro ao buscar transferências' });
     }
 });
 
-
-
-// Rota para iniciar nova temporada 
+// Rota para iniciar nova temporada
 mainRouter.post('/iniciar-temporada/:ano', async (req, res) => {
-    try {
-        const { ano } = req.params;
-        const anoAnterior = (parseInt(ano) - 1).toString();
+    const result = await prisma.$transaction(async (tx) => {
+        try {
+            const { ano } = req.params;
+            const anoAnterior = (parseInt(ano) - 1).toString();
 
-        interface TimeChange {
-            timeId: number;
-            nome?: string;
-            sigla?: string;
-            cor?: string;
-            instagram?: string;
-            instagram2?: string;
-            logo?: string;
-            capacete?: string;
-            presidente?: string;
-            head_coach?: string;
-            coord_ofen?: string;
-            coord_defen?: string;
-        }
+            interface TimeChange {
+                timeId: number;
+                nome?: string;
+                sigla?: string;
+                cor?: string;
+                instagram?: string;
+                instagram2?: string;
+                logo?: string;
+                capacete?: string;
+                presidente?: string;
+                head_coach?: string;
+                instagram_coach?: string
+                coord_ofen?: string;
+                coord_defen?: string;
+            }
 
-        interface Transferencia {
-            jogadorId: number;
-            jogadorNome?: string;
-            timeOrigemId?: number;
-            timeOrigemNome?: string;
-            novoTimeId: number;
-            novoTimeNome?: string;
-            novaPosicao?: string;
-            novoSetor?: string;
-            novoNumero?: number;
-            novaCamisa?: string;
-        }
+            interface Transferencia {
+                jogadorId: number;
+                jogadorNome?: string;
+                timeOrigemId?: number;
+                timeOrigemNome?: string;
+                novoTimeId: number;
+                novoTimeNome?: string;
+                novaPosicao?: string;
+                novoSetor?: string;
+                novoNumero?: number;
+                novaCamisa?: string;
+            }
 
-        console.log(`Iniciando criação da temporada ${ano} baseada em ${anoAnterior}`);
-
-        // 1. Obter todos os times da temporada anterior
-        const timesAnoAnterior = await prisma.time.findMany({
-            where: { temporada: anoAnterior },
-        });
-
-        // 2. Mapeamento dos IDs antigos para os novos e nomes antigos para novos
-        const mapeamentoIds = new Map();
-        const mapeamentoNomes = new Map(); // Adicionado para rastrear mudanças de nome
-
-        // 3. Criar novos times para a nova temporada
-        const timesNovos = [];
-        for (const time of timesAnoAnterior) {
-            const timeId = time.id;
-            const nomeAntigo = time.nome; // Guardar nome antigo
-
-            // Verificar se o time sofrerá alterações
-            const timeChanges: TimeChange[] = req.body.timeChanges || [];
-            const timeChange = timeChanges.find((tc: TimeChange) => tc.timeId === timeId);
-
-            // Nome do time na nova temporada
-            const nomeNovo = timeChange?.nome || time.nome;
-
-            const novoTime = await prisma.time.create({
-                data: {
-                    nome: nomeNovo,
-                    sigla: timeChange?.sigla || time.sigla,
-                    cor: timeChange?.cor || time.cor,
-                    cidade: time.cidade,
-                    bandeira_estado: time.bandeira_estado,
-                    fundacao: time.fundacao,
-                    logo: timeChange?.logo || time.logo,
-                    capacete: timeChange?.capacete || time.capacete,
-                    instagram: timeChange?.instagram || time.instagram, // Corrigido
-                    instagram2: timeChange?.instagram2 || time.instagram2, // Corrigido
-                    estadio: time.estadio,
-                    presidente: timeChange?.presidente || time.presidente,
-                    head_coach: timeChange?.head_coach || time.head_coach,
-                    instagram_coach: time.instagram_coach,
-                    coord_ofen: timeChange?.coord_ofen || time.coord_ofen,
-                    coord_defen: timeChange?.coord_defen || time.coord_defen,
-                    titulos: time.titulos as any,
-                    temporada: ano,
-                },
+            const timesAnoAnterior = await tx.time.findMany({
+                where: { temporada: anoAnterior },
             });
 
-            // Guardar mapeamento entre ID antigo e novo
-            mapeamentoIds.set(timeId, novoTime.id);
-            
-            // Guardar mapeamento entre nome antigo e novo se houver mudança
-            if (nomeAntigo !== nomeNovo) {
-                mapeamentoNomes.set(nomeAntigo, {
-                    novoNome: nomeNovo,
-                    novoId: novoTime.id
-                });
+            if (timesAnoAnterior.length === 0) {
+                throw new Error(`Nenhum time encontrado na temporada ${anoAnterior}`);
             }
-            
-            timesNovos.push(novoTime);
-        }
 
-        // 4. Obter todas as relações jogador-time do ano anterior
-        const jogadoresTimesAnoAnterior = await prisma.jogadorTime.findMany({
-            where: { temporada: anoAnterior },
-            include: { jogador: true, time: true },
-        });
+            const mapeamentoIds = new Map();
+            const mapeamentoNomes = new Map(); 
 
-        // 5. Conjunto para rastrear jogadores já processados
-        const jogadoresProcessados = new Set<number>();
+            const timesNovos = [];
+            for (const time of timesAnoAnterior) {
+                const timeId = time.id;
+                const nomeAntigo = time.nome; 
 
-        // 6. Processar as transferências
-        const transferencias: Transferencia[] = req.body.transferencias || [];
-        for (const transferencia of transferencias) {
-            try {
-                const jogadorId = transferencia.jogadorId;
+                const timeChanges: TimeChange[] = req.body.timeChanges || [];
+                const timeChange = timeChanges.find((tc: TimeChange) => tc.timeId === timeId);
 
-                // Verificar se já foi processado
-                if (jogadoresProcessados.has(jogadorId)) {
-                    continue;
-                }
+                const nomeNovo = timeChange?.nome || time.nome;
 
-                // Encontrar o jogador
-                const jogador = await prisma.jogador.findUnique({
-                    where: { id: jogadorId }
-                });
-
-                if (!jogador) {
-                    continue;
-                }
-
-                // Encontrar relação atual
-                const relacaoAtual = await prisma.jogadorTime.findFirst({
-                    where: {
-                        jogadorId: jogadorId,
-                        temporada: anoAnterior
+                const novoTime = await tx.time.create({
+                    data: {
+                        nome: nomeNovo,
+                        sigla: timeChange?.sigla || time.sigla,
+                        cor: timeChange?.cor || time.cor,
+                        cidade: time.cidade,
+                        bandeira_estado: time.bandeira_estado,
+                        fundacao: time.fundacao,
+                        logo: timeChange?.logo || time.logo,
+                        capacete: timeChange?.capacete || time.capacete,
+                        instagram: timeChange?.instagram || time.instagram,
+                        instagram2: timeChange?.instagram2 || time.instagram2,
+                        estadio: time.estadio,
+                        presidente: timeChange?.presidente || time.presidente,
+                        head_coach: timeChange?.head_coach || time.head_coach,
+                        instagram_coach: time.instagram_coach,
+                        coord_ofen: timeChange?.coord_ofen || time.coord_ofen,
+                        coord_defen: timeChange?.coord_defen || time.coord_defen,
+                        titulos: time.titulos as any,
+                        temporada: ano,
                     },
-                    include: { time: true }
                 });
 
-                if (!relacaoAtual) {
-                    continue;
+                mapeamentoIds.set(timeId, novoTime.id);
+
+                if (nomeAntigo !== nomeNovo) {
+                    mapeamentoNomes.set(nomeAntigo, {
+                        novoNome: nomeNovo,
+                        novoId: novoTime.id
+                    });
                 }
 
-                // Encontrar time de destino - primeiro pelo novoTimeNome
-                let timeDestino = await prisma.time.findFirst({
-                    where: {
-                        nome: transferencia.novoTimeNome,
-                        temporada: ano
-                    }
-                });
+                timesNovos.push(novoTime);
+            }
 
-                // Se não encontrar o time diretamente, pode ser que o time tenha mudado de nome
-                if (!timeDestino && transferencia.novoTimeNome) {
-                    // Buscar nos times criados pelo ID fornecido
+            const jogadoresTimesAnoAnterior = await tx.jogadorTime.findMany({
+                where: { temporada: anoAnterior },
+                include: { jogador: true, time: true },
+            });
+
+            const jogadoresProcessados = new Set<number>();
+
+            const transferencias = req.body.transferencias || [];
+
+            for (const transferencia of transferencias) {
+                try {
+                    const jogadorId = transferencia.jogadorId;
+
+                    if (jogadoresProcessados.has(jogadorId)) {
+                        continue;
+                    }
+
+                    const jogador = await tx.jogador.findUnique({
+                        where: { id: jogadorId }
+                    });
+
+                    if (!jogador) {
+                        continue;
+                    }
+
+                    const relacaoAtual = await tx.jogadorTime.findFirst({
+                        where: {
+                            jogadorId: jogadorId,
+                            temporada: anoAnterior
+                        },
+                        include: { time: true }
+                    });
+
+                    if (!relacaoAtual) {
+                        continue;
+                    }
+
+                    let timeDestino = null;
+
                     if (transferencia.novoTimeId) {
                         const novoId = mapeamentoIds.get(transferencia.novoTimeId);
                         if (novoId) {
-                            timeDestino = await prisma.time.findUnique({
+                            timeDestino = await tx.time.findUnique({
                                 where: { id: novoId }
                             });
                         }
                     }
-                    
-                    // Se ainda não encontrou, procurar pela correspondência de nome
-                    if (!timeDestino) {
+
+                    if (!timeDestino && transferencia.novoTimeNome) {
+                        timeDestino = await tx.time.findFirst({
+                            where: {
+                                nome: transferencia.novoTimeNome,
+                                temporada: ano
+                            }
+                        });
+
+                        if (timeDestino) {
+                        }
+                    }
+
+                    if (!timeDestino && transferencia.novoTimeNome) {
                         for (const [antigo, info] of mapeamentoNomes.entries()) {
                             if (info.novoNome === transferencia.novoTimeNome) {
-                                timeDestino = await prisma.time.findUnique({
+                                timeDestino = await tx.time.findUnique({
                                     where: { id: info.novoId }
                                 });
-                                break;
+                                if (timeDestino) {
+                                    break;
+                                }
                             }
                         }
                     }
-                }
 
-                if (!timeDestino) {
-                    console.error(`Time destino não encontrado: ${transferencia.novoTimeNome}`);
-                    continue;
-                }
+                    if (!timeDestino) {
+                        continue;
+                    }
 
-                // Atualizar posição e setor se necessário
-                if (transferencia.novaPosicao || transferencia.novoSetor) {
-                    const dadosAtualizacao: { posicao?: string, setor?: string } = {};
+                    if (transferencia.novaPosicao || transferencia.novoSetor) {
+                        const dadosAtualizacao: { posicao?: string, setor?: string } = {};
 
-                    if (transferencia.novaPosicao) dadosAtualizacao.posicao = transferencia.novaPosicao;
-                    if (transferencia.novoSetor) dadosAtualizacao.setor = transferencia.novoSetor;
+                        if (transferencia.novaPosicao) dadosAtualizacao.posicao = transferencia.novaPosicao;
+                        if (transferencia.novoSetor) dadosAtualizacao.setor = transferencia.novoSetor;
 
-                    await prisma.jogador.update({
-                        where: { id: jogadorId },
-                        data: dadosAtualizacao
+                        await tx.jogador.update({
+                            where: { id: jogadorId },
+                            data: dadosAtualizacao
+                        });
+                    }
+
+                    const novoVinculo = await tx.jogadorTime.create({
+                        data: {
+                            jogadorId: jogadorId,
+                            timeId: timeDestino.id,
+                            temporada: ano,
+                            numero: transferencia.novoNumero || relacaoAtual.numero,
+                            camisa: transferencia.novaCamisa || relacaoAtual.camisa,
+                            estatisticas: {}
+                        }
                     });
+
+                    jogadoresProcessados.add(jogadorId);
+
+                } catch (error) {
+                    console.error(`Erro ao processar transferência:`, error);
                 }
-
-                // Criar novo vínculo
-                await prisma.jogadorTime.create({
-                    data: {
-                        jogadorId: jogadorId,
-                        timeId: timeDestino.id,
-                        temporada: ano,
-                        numero: transferencia.novoNumero || relacaoAtual.numero,
-                        camisa: transferencia.novaCamisa || relacaoAtual.camisa,
-                        estatisticas: {}
-                    }
-                });
-
-                // Marcar como processado
-                jogadoresProcessados.add(jogadorId);
-
-            } catch (error) {
-                console.error(`Erro ao processar transferência:`, error);
             }
-        }
 
-        // 7. Processar jogadores que não foram transferidos
-        for (const jt of jogadoresTimesAnoAnterior) {
-            try {
-                const jogadorId = jt.jogadorId;
+            let jogadoresRegularesProcessados = 0;
 
-                // Pular jogadores já processados em transferências
-                if (jogadoresProcessados.has(jogadorId)) {
-                    continue;
-                }
+            for (const jt of jogadoresTimesAnoAnterior) {
+                try {
+                    const jogadorId = jt.jogadorId;
 
-                // Obter novo ID do time
-                const timeOriginalId = jt.timeId;
-                const novoTimeId = mapeamentoIds.get(timeOriginalId);
-
-                if (!novoTimeId) {
-                    continue;
-                }
-
-                // Criar novo vínculo mantendo o mesmo time
-                await prisma.jogadorTime.create({
-                    data: {
-                        jogadorId: jogadorId,
-                        timeId: novoTimeId,
-                        temporada: ano,
-                        numero: jt.numero,
-                        camisa: jt.camisa,
-                        estatisticas: {}
+                    if (jogadoresProcessados.has(jogadorId)) {
+                        continue;
                     }
-                });
 
-            } catch (error) {
-                console.error(`Erro ao processar jogador regular:`, error);
+                    const timeOriginalId = jt.timeId;
+                    const novoTimeId = mapeamentoIds.get(timeOriginalId);
+
+                    if (!novoTimeId) {
+                        console.error(`Não foi encontrado novo ID para o time original ${timeOriginalId}`);
+                        continue;
+                    }
+
+                    await tx.jogadorTime.create({
+                        data: {
+                            jogadorId: jogadorId,
+                            timeId: novoTimeId,
+                            temporada: ano,
+                            numero: jt.numero,
+                            camisa: jt.camisa,
+                            estatisticas: {} 
+                        }
+                    });
+
+                    jogadoresRegularesProcessados++;
+
+                    jogadoresProcessados.add(jogadorId);
+
+                } catch (error) {
+                    console.error(`Erro ao processar jogador regular:`, error);
+                }
             }
+
+
+            const saveTransferenciasToJson = async (
+                transferencias: Transferencia[],
+                anoOrigem: string,
+                anoDestino: string
+            ): Promise<number> => {
+                try {
+                    const dirPath = path.join(process.cwd(), 'public', 'data');
+
+                    if (!fs.existsSync(dirPath)) {
+                        console.log(`Criando diretório: ${dirPath}`);
+                        fs.mkdirSync(dirPath, { recursive: true });
+                    }
+
+                    const transferenciasFormatadas = [];
+
+                    for (const transferencia of transferencias) {
+                        const jogador = await prisma.jogador.findUnique({
+                            where: { id: transferencia.jogadorId }
+                        });
+
+                        const timeOrigem = transferencia.timeOrigemId ?
+                            await prisma.time.findUnique({ where: { id: transferencia.timeOrigemId } }) :
+                            null;
+
+                        const timeDestino = await prisma.time.findUnique({
+                            where: { id: transferencia.novoTimeId }
+                        });
+
+                        transferenciasFormatadas.push({
+                            id: transferencia.jogadorId,
+                            jogadorNome: jogador?.nome || transferencia.jogadorNome,
+                            timeOrigemId: transferencia.timeOrigemId,
+                            timeOrigemNome: timeOrigem?.nome || '',
+                            timeOrigemSigla: timeOrigem?.sigla || '',
+                            timeDestinoId: transferencia.novoTimeId,
+                            timeDestinoNome: timeDestino?.nome || transferencia.novoTimeNome,
+                            timeDestinoSigla: timeDestino?.sigla || '',
+                            novaPosicao: transferencia.novaPosicao || null,
+                            novoSetor: transferencia.novoSetor || null,
+                            novoNumero: transferencia.novoNumero || null,
+                            novaCamisa: transferencia.novaCamisa || null,
+                            data: new Date().toISOString()
+                        });
+                    }
+
+                    const filePath = path.join(dirPath, `transferencias_${anoOrigem}_${anoDestino}.json`);
+                    console.log(`Salvando transferências em: ${filePath}`);
+
+                    fs.writeFileSync(filePath, JSON.stringify(transferenciasFormatadas, null, 2));
+                    console.log(`${transferenciasFormatadas.length} transferências salvas com sucesso em ${filePath}`);
+                    return transferenciasFormatadas.length;
+                } catch (error) {
+                    console.error('Erro ao salvar transferências em JSON:', error);
+                    return 0;
+                }
+            };
+
+            const totalSalvo = await saveTransferenciasToJson(transferencias, anoAnterior, ano);
+            console.log(`Total de ${totalSalvo} transferências salvas em JSON`);
+            const jogadoresNovaTemporada = await tx.jogadorTime.count({
+                where: { temporada: ano }
+            });
+
+            console.log(`Contagem final: ${jogadoresNovaTemporada} jogadores na temporada ${ano}`);
+
+            return {
+                message: `Temporada ${ano} iniciada com sucesso!`,
+                times: 0, 
+                jogadores: 0,
+                transferencias: totalSalvo
+            };
+
+        } catch (error) {
+            console.error(`Erro ao iniciar temporada:`, error);
+            throw error; 
         }
+    }, {
+        timeout: 120000, 
+    });
 
-        // 8. Contagem final
-        const jogadoresNovaTemporada = await prisma.jogadorTime.count({
-            where: { temporada: ano }
-        });
-
-        res.status(200).json({
-            message: `Temporada ${ano} iniciada com sucesso!`,
-            times: timesNovos.length,
-            jogadores: jogadoresNovaTemporada
-        });
-
-    } catch (error) {
-        console.error(`Erro ao iniciar temporada ${req.params.ano}:`, error);
-        res.status(500).json({
-            error: 'Erro ao iniciar nova temporada',
-            details: error instanceof Error ? error.message : 'Erro desconhecido'
-        });
-    }
+    res.status(200).json(result);
 });
 
 export default mainRouter
